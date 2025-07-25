@@ -41,28 +41,39 @@ function App() {
   const crashAudio = useRef(null);
   // Unlock audio playback on first user interaction
   const audioUnlocked = useRef(false);
-  // ...existing code...
+  // Game mode: null (not started), 1 (single player), 2 (two players)
+  const [gameMode, setGameMode] = useState(null);
   // State for snake segments (array of {x, y} objects)
   const [snake, setSnake] = useState(INITIAL_SNAKE);
   // State for current movement direction
   const [direction, setDirection] = useState(INITIAL_DIRECTION);
+  // State for second snake (2-player mode)
+  const [snake2, setSnake2] = useState([{ x: 5, y: 5 }]);
+  const [direction2, setDirection2] = useState({ x: 0, y: 1 });
   // State for food position
   const [food, setFood] = useState(getRandomFood(INITIAL_SNAKE));
-  // State for game over flag
+  // State for game over flags
   const [gameOver, setGameOver] = useState(false);
+  const [snake1Dead, setSnake1Dead] = useState(false);
+  const [snake2Dead, setSnake2Dead] = useState(false);
   // State for score
   const [score, setScore] = useState(0);
+  const [score2, setScore2] = useState(0);
   // Ref to keep track of direction between renders
   const moveRef = useRef(direction);
+  const moveRef2 = useRef(direction2);
 
   // Update moveRef whenever direction changes
   useEffect(() => {
     moveRef.current = direction;
   }, [direction]);
-
-  // Listen for arrow key presses to change direction
   useEffect(() => {
-    if (gameOver) return;
+    moveRef2.current = direction2;
+  }, [direction2]);
+
+  // Listen for key presses to change direction (supports 2 players)
+  useEffect(() => {
+    if (gameOver || !gameMode) return;
     // Unlock audio on first user interaction
     const unlockAudio = () => {
       if (!audioUnlocked.current) {
@@ -90,6 +101,7 @@ function App() {
 
     const handleKey = (e) => {
       let played = false;
+      // Player 1: Arrow keys
       switch (e.key) {
         case 'ArrowUp':
           if (moveRef.current.y !== 1) {
@@ -118,6 +130,37 @@ function App() {
         default:
           break;
       }
+      // Player 2: W/A/S/D
+      if (gameMode === 2) {
+        switch (e.key.toLowerCase()) {
+          case 'w':
+            if (moveRef2.current.y !== 1) {
+              setDirection2({ x: 0, y: -1 });
+              played = true;
+            }
+            break;
+          case 's':
+            if (moveRef2.current.y !== -1) {
+              setDirection2({ x: 0, y: 1 });
+              played = true;
+            }
+            break;
+          case 'a':
+            if (moveRef2.current.x !== 1) {
+              setDirection2({ x: -1, y: 0 });
+              played = true;
+            }
+            break;
+          case 'd':
+            if (moveRef2.current.x !== -1) {
+              setDirection2({ x: 1, y: 0 });
+              played = true;
+            }
+            break;
+          default:
+            break;
+        }
+      }
       if (played && moveAudio.current) {
         moveAudio.current.currentTime = 0;
         moveAudio.current.play();
@@ -129,51 +172,89 @@ function App() {
       window.removeEventListener('keydown', unlockAudio, { once: true });
       window.removeEventListener('click', unlockAudio, { once: true });
     };
-  }, [gameOver]);
+  }, [gameOver, gameMode]);
 
   // Main game loop: moves the snake every 120ms
   useEffect(() => {
-    if (gameOver) return;
+    if (gameOver || !gameMode) return;
     const interval = setInterval(() => {
-      setSnake(prev => {
-        // Calculate new head position
-        const newHead = {
-          x: prev[0].x + direction.x,
-          y: prev[0].y + direction.y,
-        };
-        // Check for collision with walls or itself
-        if (
-          newHead.x < 0 || newHead.x >= BOARD_SIZE ||
-          newHead.y < 0 || newHead.y >= BOARD_SIZE ||
-          prev.some(seg => seg.x === newHead.x && seg.y === newHead.y)
-        ) {
-          setGameOver(true);
-          return prev;
-        }
-        let newSnake = [newHead, ...prev];
-        // Check if food is eaten
-        if (newHead.x === food.x && newHead.y === food.y) {
-          setFood(getRandomFood(newSnake)); // Place new food
-          setScore(s => s + 1); // Increase score
-          if (eatAudio.current) {
-            eatAudio.current.currentTime = 0;
-            eatAudio.current.play();
-            // Stop after 2 seconds
-            setTimeout(() => {
-              eatAudio.current.pause();
-              eatAudio.current.currentTime = 0;
-            }, 1000);
+      // Player 1
+      if (!snake1Dead) {
+        setSnake(prev => {
+          const newHead = {
+            x: prev[0].x + direction.x,
+            y: prev[0].y + direction.y,
+          };
+          if (
+            newHead.x < 0 || newHead.x >= BOARD_SIZE ||
+            newHead.y < 0 || newHead.y >= BOARD_SIZE ||
+            prev.some(seg => seg.x === newHead.x && seg.y === newHead.y) ||
+            (gameMode === 2 && snake2.some(seg => seg.x === newHead.x && seg.y === newHead.y))
+          ) {
+            setSnake1Dead(true);
+            return prev;
           }
-        } else {
-          newSnake.pop(); // Remove tail if no food eaten
-        }
-        return newSnake;
-      });
+          let newSnake = [newHead, ...prev];
+          if (newHead.x === food.x && newHead.y === food.y) {
+            setFood(getRandomFood(gameMode === 2 ? [...newSnake, ...snake2] : newSnake));
+            setScore(s => s + 1);
+            if (eatAudio.current) {
+              eatAudio.current.currentTime = 0;
+              eatAudio.current.play();
+              setTimeout(() => {
+                eatAudio.current.pause();
+                eatAudio.current.currentTime = 0;
+              }, 1000);
+            }
+          } else {
+            newSnake.pop();
+          }
+          return newSnake;
+        });
+      }
+      // Player 2
+      if (gameMode === 2 && !snake2Dead) {
+        setSnake2(prev => {
+          const newHead = {
+            x: prev[0].x + direction2.x,
+            y: prev[0].y + direction2.y,
+          };
+          if (
+            newHead.x < 0 || newHead.x >= BOARD_SIZE ||
+            newHead.y < 0 || newHead.y >= BOARD_SIZE ||
+            prev.some(seg => seg.x === newHead.x && seg.y === newHead.y) ||
+            snake.some(seg => seg.x === newHead.x && seg.y === newHead.y)
+          ) {
+            setSnake2Dead(true);
+            return prev;
+          }
+          let newSnake = [newHead, ...prev];
+          if (newHead.x === food.x && newHead.y === food.y) {
+            setFood(getRandomFood([...snake, ...newSnake]));
+            setScore2(s => s + 1);
+            if (eatAudio.current) {
+              eatAudio.current.currentTime = 0;
+              eatAudio.current.play();
+              setTimeout(() => {
+                eatAudio.current.pause();
+                eatAudio.current.currentTime = 0;
+              }, 1000);
+            }
+          } else {
+            newSnake.pop();
+          }
+          return newSnake;
+        });
+      }
+      // End game only if both are dead
+      if ((gameMode === 2 && snake1Dead && snake2Dead) || (gameMode === 1 && snake1Dead)) {
+        setGameOver(true);
+      }
     }, 120);
     return () => {
       clearInterval(interval);
     };
-  }, [direction, food, gameOver]);
+  }, [direction, direction2, food, gameOver, gameMode, snake2, snake, snake1Dead, snake2Dead]);
 
   // Play melody in loop only once per game session
   useEffect(() => {
@@ -203,9 +284,15 @@ function App() {
   const handleRestart = () => {
     setSnake(INITIAL_SNAKE);
     setDirection(INITIAL_DIRECTION);
+    setSnake2([{ x: 5, y: 5 }]);
+    setDirection2({ x: 0, y: 1 });
     setFood(getRandomFood(INITIAL_SNAKE));
     setGameOver(false);
     setScore(0);
+    setScore2(0);
+    setGameMode(null);
+    setSnake1Dead(false);
+    setSnake2Dead(false);
   };
 
   // Render the game board and UI
@@ -230,46 +317,60 @@ function App() {
       <audio ref={moveAudio} src="/step.mp3" preload="auto" />
       <audio ref={crashAudio} src="/crash.mp3" preload="auto" />
       <h1>Snake Game</h1>
-      <div>Score: {score}</div>
-      <div
-        style={{
-          background: '#222',
-          margin: '1rem auto',
-          border: '2px solid #555',
-          padding: 0,
-          width: (BOARD_SIZE * 20) + 'px',
-        }}
-      >
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateRows: `repeat(${BOARD_SIZE}, 20px)`,
-            gridTemplateColumns: `repeat(${BOARD_SIZE}, 20px)`,
-            margin: 'auto',
-          }}
-        >
-          {/* Render each cell of the board */}
-          {[...Array(BOARD_SIZE * BOARD_SIZE)].map((_, i) => {
-            const x = i % BOARD_SIZE;
-            const y = Math.floor(i / BOARD_SIZE);
-            // Check if cell is part of the snake
-            const isSnake = snake.some(seg => seg.x === x && seg.y === y);
-            // Check if cell is food
-            const isFood = food.x === x && food.y === y;
-            return (
-              <div
-                key={i}
-                style={{
-                  width: 20,
-                  height: 20,
-                  background: isSnake ? '#0f0' : isFood ? '#f00' : '#333',
-                  border: '1px solid #222',
-                }}
-              />
-            );
-          })}
+      {/* Start screen */}
+      {gameMode === null && !gameOver && (
+        <div style={{ margin: '2rem' }}>
+          <button style={{ fontSize: '1.2rem', margin: '1rem' }} onClick={() => setGameMode(1)}>1 Player</button>
+          <button style={{ fontSize: '1.2rem', margin: '1rem' }} onClick={() => setGameMode(2)}>2 Players</button>
         </div>
-      </div>
+      )}
+      {/* Game board and scores */}
+      {gameMode !== null && (
+        <>
+          <div>Score: {score}{gameMode === 2 && <> | Player 2: {score2}</>}</div>
+          <div
+            style={{
+              background: '#222',
+              margin: '1rem auto',
+              border: '2px solid #555',
+              padding: 0,
+              width: (BOARD_SIZE * 20) + 'px',
+            }}
+          >
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateRows: `repeat(${BOARD_SIZE}, 20px)`,
+                gridTemplateColumns: `repeat(${BOARD_SIZE}, 20px)`,
+                margin: 'auto',
+              }}
+            >
+              {/* Render each cell of the board */}
+              {[...Array(BOARD_SIZE * BOARD_SIZE)].map((_, i) => {
+                const x = i % BOARD_SIZE;
+                const y = Math.floor(i / BOARD_SIZE);
+                // Check if cell is part of the snake
+                const isSnake = snake.some(seg => seg.x === x && seg.y === y);
+                const isSnake2 = gameMode === 2 && snake2.some(seg => seg.x === x && seg.y === y);
+                // Check if cell is food
+                const isFood = food.x === x && food.y === y;
+                return (
+                  <div
+                    key={i}
+                    style={{
+                      width: 20,
+                      height: 20,
+                      background:
+                        isSnake2 ? '#00f' : isSnake ? '#0f0' : isFood ? '#f00' : '#333',
+                      border: '1px solid #222',
+                    }}
+                  />
+                );
+              })}
+            </div>
+          </div>
+        </>
+      )}
       {/* Show Game Over and Restart button if game is over */}
       {gameOver && (
         <div>
@@ -278,7 +379,8 @@ function App() {
         </div>
       )}
       <div style={{ marginTop: '1rem', color: '#888' }}>
-        Use arrow keys to control the snake.
+        {gameMode === 1 && 'Use arrow keys to control the snake.'}
+        {gameMode === 2 && 'Player 1: Arrow keys | Player 2: W/A/S/D'}
       </div>
     </div>
   );
