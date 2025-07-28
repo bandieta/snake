@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Snake from './Snake';
+import DemoAnimation from './DemoAnimation';
 
 const BOARD_SIZE = 20;
 const INITIAL_SNAKE = [{ x: 10, y: 10 }];
@@ -32,16 +33,50 @@ function App() {
   const [food, setFood] = useState(getRandomFood([snake1, snake2]));
   const [, setTick] = useState(0); // Dummy state to force re-render
 
+
   // --- Effects ---
+
+  // Unlock and play melody audio on first user interaction (even on demo screen)
+  const [, forceRerender] = useState(0);
+  useEffect(() => {
+    function unlockAudio() {
+      if (!audioUnlocked.current) {
+        if (eatAudio.current) {
+          eatAudio.current.volume = 0;
+          eatAudio.current.play().catch(() => {});
+          setTimeout(() => { eatAudio.current.volume = 1; }, 100);
+        }
+        if (melodyAudio.current) {
+          melodyAudio.current.loop = true;
+          melodyAudio.current.volume = 0.3;
+          melodyAudio.current.currentTime = 0;
+          melodyAudio.current.play().catch(() => {});
+        }
+        if (moveAudio.current) {
+          moveAudio.current.volume = 0;
+          moveAudio.current.play().catch(() => {});
+          setTimeout(() => { moveAudio.current.volume = 1; }, 100);
+        }
+        audioUnlocked.current = true;
+        forceRerender(t => t + 1); // Force re-render to trigger effect
+      }
+    }
+    window.addEventListener('keydown', unlockAudio, { once: true });
+    window.addEventListener('click', unlockAudio, { once: true });
+    return () => {
+      window.removeEventListener('keydown', unlockAudio, { once: true });
+      window.removeEventListener('click', unlockAudio, { once: true });
+    };
+  }, []);
 
   // Play melody and crash sound on game state changes
   useEffect(() => {
-    if (!gameOver && melodyAudio.current) {
+    if (!gameOver && melodyAudio.current && audioUnlocked.current) {
       melodyAudio.current.loop = true;
       melodyAudio.current.volume = 0.3;
       if (melodyAudio.current.paused) {
         melodyAudio.current.currentTime = 0;
-        melodyAudio.current.play();
+        melodyAudio.current.play().catch(() => {});
       }
     }
     if (gameOver) {
@@ -54,31 +89,11 @@ function App() {
         crashAudio.current.play();
       }
     }
-  }, [gameOver]);
+  }, [gameOver, audioUnlocked.current]);
 
   // Handle keyboard input for both players
   useEffect(() => {
     if (gameOver || !gameMode) return;
-    function unlockAudio() {
-      if (!audioUnlocked.current) {
-        if (eatAudio.current) {
-          eatAudio.current.volume = 0;
-          eatAudio.current.play().catch(() => {});
-          setTimeout(() => { eatAudio.current.volume = 1; }, 100);
-        }
-        if (melodyAudio.current) {
-          melodyAudio.current.volume = 0;
-          melodyAudio.current.play().catch(() => {});
-          setTimeout(() => { melodyAudio.current.volume = 0.3; }, 100);
-        }
-        if (moveAudio.current) {
-          moveAudio.current.volume = 0;
-          moveAudio.current.play().catch(() => {});
-          setTimeout(() => { moveAudio.current.volume = 1; }, 100);
-        }
-        audioUnlocked.current = true;
-      }
-    }
     function handleKey(e) {
       let played = false;
       // Player 1: Arrow keys
@@ -110,13 +125,9 @@ function App() {
         moveAudio.current.play();
       }
     }
-    window.addEventListener('keydown', unlockAudio, { once: true });
-    window.addEventListener('click', unlockAudio, { once: true });
     window.addEventListener('keydown', handleKey);
     return () => {
       window.removeEventListener('keydown', handleKey);
-      window.removeEventListener('keydown', unlockAudio, { once: true });
-      window.removeEventListener('click', unlockAudio, { once: true });
     };
   }, [gameOver, gameMode, snake1, snake2]);
 
@@ -237,13 +248,15 @@ function App() {
         textAlign: 'center',
       }}
     >
+      {/* Animated demo background for first screen */}
+      {gameMode === null && !gameOver && <DemoAnimation />}
       <audio ref={eatAudio} src="/bite.mp3" preload="auto" />
       <audio ref={melodyAudio} src="/melody.mp3" preload="auto" />
       <audio ref={moveAudio} src="/step.mp3" preload="auto" />
       <audio ref={crashAudio} src="/crash.mp3" preload="auto" />
       <h1>Snake Game</h1>
       {gameMode === null && !gameOver && (
-        <div style={{ margin: '2rem' }}>
+        <div style={{ margin: '2rem', position: 'relative', zIndex: 1 }}>
           <button style={{ fontSize: '1.2rem', margin: '1rem' }} onClick={() => setGameMode(1)}>1 Player</button>
           <button style={{ fontSize: '1.2rem', margin: '1rem' }} onClick={() => setGameMode(2)}>2 Players</button>
         </div>
@@ -251,44 +264,7 @@ function App() {
       {gameMode !== null && (
         <>
           <div>Score: {snake1.score}{gameMode === 2 && <> | Player 2: {snake2.score}</>}</div>
-          <div
-            style={{
-              background: '#222',
-              margin: '1rem auto',
-              border: '2px solid #555',
-              padding: 0,
-              width: (BOARD_SIZE * 20) + 'px',
-            }}
-          >
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateRows: `repeat(${BOARD_SIZE}, 20px)`,
-                gridTemplateColumns: `repeat(${BOARD_SIZE}, 20px)`,
-                margin: 'auto',
-              }}
-            >
-              {[...Array(BOARD_SIZE * BOARD_SIZE)].map((_, i) => {
-                const x = i % BOARD_SIZE;
-                const y = Math.floor(i / BOARD_SIZE);
-                const isSnake = snake1.segments.some(seg => seg.x === x && seg.y === y);
-                const isSnake2 = gameMode === 2 && snake2.segments.some(seg => seg.x === x && seg.y === y);
-                const isFood = food.x === x && food.y === y;
-                return (
-                  <div
-                    key={i}
-                    style={{
-                      width: 20,
-                      height: 20,
-                      background:
-                        isSnake2 ? '#00f' : isSnake ? '#0f0' : isFood ? '#f00' : '#333',
-                      border: '1px solid #222',
-                    }}
-                  />
-                );
-              })}
-            </div>
-          </div>
+          {renderBoard()}
         </>
       )}
       {gameOver && (
